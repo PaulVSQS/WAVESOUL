@@ -25,16 +25,16 @@ export class DynamicsProcessor {
   private envIntensity = 0;
 
   // ── Attack/Release en factor por frame (a 60fps) ──
-  // Attack lento = movimiento orgánico al subir
-  // Release más lento = la línea "respira" al bajar
-  private readonly attackEnergy = 0.06;    // ~270ms to reach target
-  private readonly releaseEnergy = 0.025;  // ~660ms to decay
-  private readonly attackBass = 0.05;      // Bass sube lento (evita kicks explosivos)
+  // Calibrado para sentir beats y voz sin explotar.
+  // Attack más rápido = sientes el kick. Release orgánico = respira al bajar.
+  private readonly attackEnergy = 0.12;    // ~140ms — siente el beat
+  private readonly releaseEnergy = 0.035;  // ~470ms — decay natural
+  private readonly attackBass = 0.10;      // Bass sube visible (kick)
   private readonly releaseBass = 0.03;     // Bass baja suave
-  private readonly attackMid = 0.08;       // Mid (voz) algo más rápido
-  private readonly releaseMid = 0.025;     // Pero baja suave
-  private readonly attackTreble = 0.10;    // Treble puede ser algo más reactivo
-  private readonly releaseTreble = 0.04;
+  private readonly attackMid = 0.12;       // Mid (voz) reactivo
+  private readonly releaseMid = 0.03;      // Baja elegante
+  private readonly attackTreble = 0.14;    // Treble ágil
+  private readonly releaseTreble = 0.045;
 
   // ── Historial de energía para normalización adaptativa ──
   private readonly historySize = 150;      // ~2.5 segundos a 60fps
@@ -50,11 +50,11 @@ export class DynamicsProcessor {
   // ── Waveform processing ──
   private smoothWaveform: Float32Array;
   private readonly waveformPoints = 200;   // Puntos de la línea visual
-  private readonly waveformSmoothing = 0.12; // Suavizado de la forma de onda
+  private readonly waveformSmoothing = 0.15; // Suavizado más ágil de la forma de onda
 
   // ── Peak detection con histéresis ──
   private peakCooldown = 0;
-  private readonly peakCooldownFrames = 18; // ~300ms entre peaks
+  private readonly peakCooldownFrames = 14; // ~230ms entre peaks — permite beats más frecuentes
   private prevEnergy = 0;
   private prevPrevEnergy = 0;
 
@@ -66,7 +66,7 @@ export class DynamicsProcessor {
   private smoothBass2 = 0;
   private smoothMid2 = 0;
   private smoothTreble2 = 0;
-  private readonly secondSmoothFactor = 0.15;
+  private readonly secondSmoothFactor = 0.22;
 
   constructor() {
     this.smoothWaveform = new Float32Array(this.waveformPoints);
@@ -120,7 +120,7 @@ export class DynamicsProcessor {
 
     // ── 7. INTENSIDAD VISUAL ──
     // Interpolación muy suave para grosor/glow (no debe saltar)
-    const targetIntensity = this.clamp(this.smoothEnergy2 * 1.2);
+    const targetIntensity = this.clamp(this.smoothEnergy2 * 1.5);
     this.envIntensity = this.envelope(this.envIntensity, targetIntensity, 0.04, 0.015);
 
     // ── 8. WAVEFORM PROCESSING ──
@@ -249,9 +249,9 @@ export class DynamicsProcessor {
     // Usar percentil ~90 para robustez
     if (this.energyHistory.length > 10) {
       const sorted = [...this.energyHistory].sort((a, b) => a - b);
-      const p90 = sorted[Math.floor(sorted.length * 0.9)];
-      // Lerp suave hacia el nuevo máximo (no saltar)
-      this.historyMax += (Math.max(p90, 0.15) - this.historyMax) * 0.02;
+      const p85 = sorted[Math.floor(sorted.length * 0.85)];
+      // Lerp hacia el máximo — más rápido para adaptarse al track
+      this.historyMax += (Math.max(p85, 0.15) - this.historyMax) * 0.03;
     }
   }
 
@@ -284,14 +284,14 @@ export class DynamicsProcessor {
 
       // Aplicar la escala basada en la energía procesada (NO cruda)
       // La energía ya está comprimida, así que el factor es controlado
-      const scale = 0.3 + energy * 1.8; // Rango: 0.3 (silencio) a 2.1 (máximo)
+      const scale = 0.4 + energy * 2.8; // Rango: 0.4 (silencio) a 3.2 (máximo) — más rango dinámico
       let processed = sample * scale;
 
       // Soft-clip la waveform: evitar que los picos salgan del rango visual
       processed = this.softClipWaveform(processed);
 
       // Suavizado temporal: la waveform no salta frame-a-frame
-      const smoothFactor = this.waveformSmoothing + energy * 0.08;
+      const smoothFactor = this.waveformSmoothing + energy * 0.10;
       this.smoothWaveform[i] += (processed - this.smoothWaveform[i]) * smoothFactor;
     }
   }
@@ -303,8 +303,8 @@ export class DynamicsProcessor {
    */
   private softClipWaveform(x: number): number {
     // tanh proporciona compresión suave natural
-    // Escalar para que la zona lineal sea ±0.4 y sature hacia ±0.8
-    return Math.tanh(x * 1.2) * 0.8;
+    // Menos agresivo: zona lineal más amplia, ceiling más alto
+    return Math.tanh(x * 1.0) * 0.9;
   }
 
   /**
@@ -324,8 +324,8 @@ export class DynamicsProcessor {
     // Y la diferencia es significativa respecto al nivel base
     const delta = energy - this.prevEnergy;
     const accel = delta - (this.prevEnergy - this.prevPrevEnergy);
-    const isRising = delta > 0.02 && accel > 0.005;
-    const isSignificant = energy > 0.25 && delta > this.historyMax * 0.15;
+    const isRising = delta > 0.015 && accel > 0.004;
+    const isSignificant = energy > 0.18 && delta > this.historyMax * 0.12;
 
     this.prevPrevEnergy = this.prevEnergy;
     this.prevEnergy = energy;

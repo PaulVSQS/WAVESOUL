@@ -68,20 +68,23 @@ export class WavelineRenderer {
     this.ctx.fillStyle = `rgba(10, 10, 15, ${1 - this.trailOpacity})`;
     this.ctx.fillRect(0, 0, this.width, this.height);
 
-    // Usar energía procesada (ya comprimida y acotada 0-1)
+    // Usar energía y bandas procesadas (ya comprimidas y acotadas 0-1)
     const energy = processed?.energy ?? 0;
+    const bass = processed?.bass ?? 0;
+    const mid = processed?.mid ?? 0;
+    const treble = processed?.treble ?? 0;
     const isPeak = processed?.isPeak ?? false;
     const intensity = processed?.intensity ?? 0;
 
-    // Actualizar colores basados en energía procesada
-    const color = this.colorEngine.update(energy, isPeak);
+    // Actualizar colores basados en bandas (estado emocional, no solo energía)
+    const color = this.colorEngine.update(energy, bass, mid, treble, isPeak);
 
     // Actualizar puntos de la línea
     this.updatePoints(processed);
 
     // Dibujar capas de la línea (de fondo a primer plano)
-    this.drawGlowLayer(color, intensity);
-    this.drawMainLine(color, intensity);
+    this.drawGlowLayer(color, intensity, processed);
+    this.drawMainLine(color, intensity, processed);
 
     // Flash sutil en peaks
     if (isPeak) {
@@ -117,15 +120,15 @@ export class WavelineRenderer {
 
       // Añadir micro-breathing orgánico (siempre presente)
       // Usa el breathPhase del procesador para sincronización
-      const breathAmp = 0.003 + energy * 0.005;
+      const breathAmp = 0.004 + energy * 0.010;
       const breath =
         Math.sin(breathPhase + t * Math.PI * 3.5) * breathAmp +
         Math.sin(breathPhase * 0.618 + t * Math.PI * 2.1) * breathAmp * 0.6;
       targetValue += breath;
 
       // Suavizado de display: interpolación suave hacia el target
-      // Factor bajo = movimiento MUY fluido, orgánico
-      const displaySmoothing = 0.10 + energy * 0.12;
+      // Factor más alto = sigue al audio más fielmente
+      const displaySmoothing = 0.12 + energy * 0.16;
       this.displayPoints[i] += (targetValue - this.displayPoints[i]) * displaySmoothing;
     }
   }
@@ -134,13 +137,13 @@ export class WavelineRenderer {
    * Dibuja la capa de glow difusa (fondo de la línea).
    * Intensidad controlada por intensity (0-1, ya comprimida).
    */
-  private drawGlowLayer(color: DynamicColor, intensity: number): void {
+  private drawGlowLayer(color: DynamicColor, intensity: number, processed: ProcessedAudioData | null): void {
     this.ctx.save();
 
-    // Glow proporcional a la intensidad pero con techo
-    const glowBlur = 20 + intensity * 25;
-    const glowAlpha = 0.2 + intensity * 0.3;
-    const glowWidth = 3 + intensity * 3;
+    // Glow proporcional a la intensidad con mayor rango dinámico
+    const glowBlur = 18 + intensity * 40;
+    const glowAlpha = 0.15 + intensity * 0.45;
+    const glowWidth = 2 + intensity * 5;
 
     this.ctx.shadowBlur = glowBlur;
     this.ctx.shadowColor = color.glow;
@@ -148,7 +151,7 @@ export class WavelineRenderer {
     this.ctx.strokeStyle = color.glow;
     this.ctx.globalAlpha = glowAlpha;
 
-    this.drawCurve();
+    this.drawCurve(processed);
 
     this.ctx.restore();
   }
@@ -157,11 +160,11 @@ export class WavelineRenderer {
    * Dibuja la línea principal con gradiente y grosor dinámico.
    * Grosor controlado por intensity (0-1, ya comprimida).
    */
-  private drawMainLine(color: DynamicColor, intensity: number): void {
+  private drawMainLine(color: DynamicColor, intensity: number, processed: ProcessedAudioData | null): void {
     this.ctx.save();
 
-    // Grosor dinámico: más gruesa con más intensidad pero con techo
-    const baseWidth = 1.5 + intensity * 2.5;
+    // Grosor dinámico: rango más amplio (de ultra-thin a contundente)
+    const baseWidth = 1.2 + intensity * 3.5;
     this.ctx.lineWidth = baseWidth;
 
     // Gradiente a lo largo de la línea
@@ -182,7 +185,7 @@ export class WavelineRenderer {
     this.ctx.shadowBlur = 6 + intensity * 6;
     this.ctx.shadowColor = color.primary;
 
-    this.drawCurve();
+    this.drawCurve(processed);
 
     this.ctx.restore();
   }
@@ -194,41 +197,43 @@ export class WavelineRenderer {
   private drawPeakFlash(color: DynamicColor): void {
     this.ctx.save();
 
-    // Radial gradient flash sutil desde el centro
+    // Radial gradient flash — perceptible pero elegante
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const radius = Math.max(this.width, this.height) * 0.4;
+    const radius = Math.max(this.width, this.height) * 0.45;
 
     const gradient = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    gradient.addColorStop(0, `hsla(${color.hue}, ${color.saturation}%, ${color.lightness}%, 0.06)`);
-    gradient.addColorStop(0.4, `hsla(${color.hue}, ${color.saturation}%, ${color.lightness}%, 0.02)`);
+    gradient.addColorStop(0, `hsla(${color.hue}, ${color.saturation}%, ${color.lightness}%, 0.10)`);
+    gradient.addColorStop(0.4, `hsla(${color.hue}, ${color.saturation}%, ${color.lightness}%, 0.04)`);
     gradient.addColorStop(1, 'transparent');
 
     this.ctx.fillStyle = gradient;
     this.ctx.fillRect(0, 0, this.width, this.height);
 
-    // Trail ligeramente más visible en peaks (transición suave)
-    this.trailTarget = 0.22;
+    // Trail más visible en peaks (transición suave)
+    this.trailTarget = 0.28;
 
     this.ctx.restore();
 
-    // Decay suave del trail target
+    // Decay suave del trail target — dura un poco más para presencia
     setTimeout(() => {
       this.trailTarget = 0.12;
-    }, 80);
+    }, 120);
   }
 
   /**
    * Dibuja la curva Bezier cúbica suavizada.
-   * amplitudeScale controlado: la waveform ya viene limitada a ±0.8
-   * por el DynamicsProcessor, así que amplitudeScale es solo un escalador visual.
+   * La amplitud escala dinámicamente con bass y mid del audio procesado.
+   * Bass → olas más amplias. Mid → curvatura ECG.
    */
-  private drawCurve(): void {
+  private drawCurve(processed?: ProcessedAudioData | null): void {
     const centerY = this.height / 2;
-    // La waveform procesada ya está en rango ±0.8 (soft-clipped)
-    // Multiplicar por height * 0.18 da un máximo visual de ±14.4% de la pantalla
-    // Esto es elegante y nunca desborda
-    const amplitudeScale = this.height * 0.18;
+    const bass = processed?.bass ?? 0;
+    const mid = processed?.mid ?? 0;
+
+    // Amplitud base más generosa + escalado por bandas
+    // Bass amplía la ola, mid añade curvatura ECG
+    const amplitudeScale = this.height * (0.22 + bass * 0.10 + mid * 0.06);
 
     this.ctx.beginPath();
 

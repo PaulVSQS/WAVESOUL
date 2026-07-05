@@ -82,5 +82,5 @@ export interface VisualizerConfig {
   trailOpacity: number;
 }
 
-/** Modos de energía para el color engine */
-export type EnergyLevel = 'silence' | 'calm' | 'low' | 'medium' | 'high' | 'peak';
+/** Estados emocionales para el color engine — mapean situaciones musicales reales */
+export type EnergyLevel = 'silence' | 'calm' | 'groove' | 'elevation' | 'vocal' | 'intensity' | 'climax';

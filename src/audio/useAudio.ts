@@ -191,6 +191,40 @@ export function useAudio() {
     };
   }, [stopAnalysisLoop, stopTimeUpdates]);
 
+  // Listeners de teclado globales para controles de reproducción
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const engine = engineRef.current;
+      if (!engine || !playerState.isLoaded) return;
+
+      switch (e.key) {
+        case 'ArrowRight':
+          e.preventDefault();
+          seek(engine.currentTime + 5);
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          seek(engine.currentTime - 5);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setVolume(engine.volume + 0.05);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          setVolume(engine.volume - 0.05);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [seek, setVolume, playerState.isLoaded]);
+
   return {
     playerState,
     controls,

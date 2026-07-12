@@ -4,6 +4,7 @@ import type { AudioPlayerState, AudioControls } from '../types/audio';
 interface PlayerControlsProps {
   playerState: AudioPlayerState;
   controls: AudioControls;
+  isContemplative?: boolean;
 }
 
 /**
@@ -20,7 +21,7 @@ function formatTime(seconds: number): string {
  * PlayerControls — Barra de controles flotante y minimalista.
  * Se auto-oculta después de 3s de inactividad.
  */
-export function PlayerControls({ playerState, controls }: PlayerControlsProps) {
+export function PlayerControls({ playerState, controls, isContemplative = false }: PlayerControlsProps) {
   const [isHidden, setIsHidden] = useState(false);
   const hideTimerRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,7 +68,7 @@ export function PlayerControls({ playerState, controls }: PlayerControlsProps) {
   return (
     <div
       ref={containerRef}
-      className={`player-controls ${isHidden ? 'auto-hidden' : ''}`}
+      className={`player-controls ${isHidden ? 'auto-hidden' : ''} ${isContemplative ? 'contemplative-hide' : ''}`}
       onMouseEnter={resetHideTimer}
       id="player-controls"
     >

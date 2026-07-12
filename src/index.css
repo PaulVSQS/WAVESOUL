@@ -481,3 +481,62 @@ body {
     min-width: 60px;
   }
 }
+
+/* --- Contemplative Mode --- */
+.wavesoul-root.hide-cursor,
+.wavesoul-root.hide-cursor * {
+  cursor: none !important;
+}
+
+.contemplative-hide {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translate(-50%, 20px) !important; /* for player controls */
+  transition: opacity var(--ws-transition-slow), transform var(--ws-transition-slow) !important;
+}
+
+/* For logo since it's not positioned at translateX(-50%) */
+.wavesoul-logo.contemplative-hide {
+  transform: translateY(-20px) !important;
+}
+
+.contemplative-hint {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ws-text-muted);
+  background: rgba(10, 10, 15, 0.4);
+  padding: 6px 16px;
+  border-radius: var(--ws-radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
+  animation: fadeOutHint 5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fadeOutHint {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+}
+

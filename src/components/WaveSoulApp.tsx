@@ -17,7 +17,10 @@ import { animateIntro } from '../animation/transitions';
 export function WaveSoulApp() {
   const { playerState, controls, processedDataRef } = useAudio();
   const [isAudioLoaded, setIsAudioLoaded] = useState(false);
+  const [isContemplative, setIsContemplative] = useState(false);
   const logoRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const mouseTimeoutRef = useRef<number>(0);
 
   // Animación de entrada
   useEffect(() => {
@@ -39,10 +42,86 @@ export function WaveSoulApp() {
     }
   }, [controls]);
 
+  // Toggle modo contemplativo
+  const toggleContemplative = useCallback(() => {
+    setIsContemplative(prev => !prev);
+  }, []);
+
+  // Escuchar doble clic para toggle
+  useEffect(() => {
+    const handleDblClick = () => {
+      if (playerState.isLoaded) {
+        toggleContemplative();
+      }
+    };
+    window.addEventListener('dblclick', handleDblClick);
+    return () => window.removeEventListener('dblclick', handleDblClick);
+  }, [playerState.isLoaded, toggleContemplative]);
+
+  // Escuchar tecla 'c' para toggle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'c' && playerState.isLoaded) {
+        // Evitar activar si están escribiendo en algún input (aunque no hay en esta app, es buena práctica)
+        if (document.activeElement?.tagName !== 'INPUT') {
+          toggleContemplative();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [playerState.isLoaded, toggleContemplative]);
+
+  // Manejar el cursor oculto tras inactividad en modo contemplativo
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const handleMouseMove = () => {
+      if (!isContemplative) {
+        root.classList.remove('hide-cursor');
+        return;
+      }
+
+      root.classList.remove('hide-cursor');
+      clearTimeout(mouseTimeoutRef.current);
+      
+      mouseTimeoutRef.current = window.setTimeout(() => {
+        if (isContemplative) {
+          root.classList.add('hide-cursor');
+        }
+      }, 2000);
+    };
+
+    if (isContemplative) {
+      handleMouseMove(); // Inicializar timer
+      window.addEventListener('mousemove', handleMouseMove);
+    } else {
+      root.classList.remove('hide-cursor');
+      clearTimeout(mouseTimeoutRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      clearTimeout(mouseTimeoutRef.current);
+    };
+  }, [isContemplative]);
+
   return (
-    <div className="wavesoul-root" id="wavesoul-root">
+    <div 
+      className={`wavesoul-root ${isContemplative ? 'contemplative-active' : ''}`} 
+      id="wavesoul-root"
+      ref={rootRef}
+    >
+      {/* Indicador sutil de Modo Contemplativo */}
+      {isContemplative && (
+        <div className="contemplative-hint">
+          Modo Contemplativo Activo · Presiona C o Doble Clic para volver
+        </div>
+      )}
+
       {/* Logo */}
-      <div className="wavesoul-logo" ref={logoRef}>
+      <div className={`wavesoul-logo ${isContemplative ? 'contemplative-hide' : ''}`} ref={logoRef}>
         <svg className="logo-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path
             d="M2 16 C4 16, 5 10, 7 10 C9 10, 9 22, 11 22 C13 22, 13 6, 16 6 C19 6, 19 26, 21 26 C23 26, 23 10, 25 10 C27 10, 28 16, 30 16"
@@ -63,16 +142,17 @@ export function WaveSoulApp() {
 
       {/* Capa 3: UI */}
       <div className="layer-ui">
-        {/* Upload zone — se oculta cuando hay audio cargado */}
+        {/* Upload zone — se oculta cuando hay audio cargado o en modo contemplativo */}
         <AudioUploader
           onFileSelected={handleFileSelected}
-          isHidden={isAudioLoaded}
+          isHidden={isAudioLoaded || isContemplative}
         />
 
         {/* Player controls — aparecen cuando hay audio */}
         <PlayerControls
           playerState={playerState}
           controls={controls}
+          isContemplative={isContemplative}
         />
       </div>
     </div>

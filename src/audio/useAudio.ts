@@ -98,9 +98,11 @@ export function useAudio() {
       analyzerRef.current = new AudioAnalyzer(engine.analyser, engine.context.sampleRate);
     }
 
-    // Crear DynamicsProcessor (si aún no existe)
+    // Crear DynamicsProcessor (si aún no existe) o resetearlo si ya existe
     if (!processorRef.current) {
       processorRef.current = new DynamicsProcessor();
+    } else {
+      processorRef.current.resetForNewSong();
     }
 
     engine.setVolume(playerState.volume);

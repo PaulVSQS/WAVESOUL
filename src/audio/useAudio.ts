@@ -96,6 +96,11 @@ export function useAudio() {
     // Crear analyzer con el AnalyserNode del engine
     if (engine.analyser && engine.context) {
       analyzerRef.current = new AudioAnalyzer(engine.analyser, engine.context.sampleRate);
+      // Configurar el InstrumentDetector con el sampleRate y fftSize reales
+      processorRef.current?.configureSampleRate(
+        engine.context.sampleRate,
+        engine.analyser.fftSize,
+      );
     }
 
     // Crear DynamicsProcessor (si aún no existe) o resetearlo si ya existe

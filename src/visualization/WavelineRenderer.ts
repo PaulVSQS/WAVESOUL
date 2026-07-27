@@ -1,4 +1,4 @@
-import type { ProcessedAudioData, DynamicColor } from '../types/audio';
+import type { ProcessedAudioData, DynamicColor, GestureType } from '../types/audio';
 import { ColorEngine } from './ColorEngine';
 
 /**
@@ -48,6 +48,9 @@ export class WavelineRenderer {
 
   // ── Grosor emocional ──
   private smoothLineWidth = 1.5;
+
+  // ── Glow extra para instrumentos de brillo (trompeta, guitarra eléctrica) ──
+  private instrumentGlowBoost = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -115,6 +118,19 @@ export class WavelineRenderer {
     // ── Actualizar fases orgánicas ──
     this.perlinPhase += 0.003;
     this.harmonicPhase += 0.08 + treble * 0.15;
+
+    // ── Modulación de glow por instrumento (solo brillo, muy sutil) ──
+    const instrumentData = processed?.instrumentData;
+    let targetGlowBoost = 0;
+    if (instrumentData?.isActive) {
+      const gType = instrumentData.gestureType;
+      if (gType === 'luminous_pulse' || gType === 'tension_edge') {
+        targetGlowBoost = instrumentData.gestureIntensity * 0.12;
+      } else if (gType === 'long_expansion' || gType === 'micro_float') {
+        targetGlowBoost = instrumentData.gestureIntensity * 0.06;
+      }
+    }
+    this.instrumentGlowBoost += (targetGlowBoost - this.instrumentGlowBoost) * 0.05;
 
     // ── Dibujar capas ──
     this.drawGlowLayer(color, intensity, breathPhase, emotionalState?.tension ?? 0);
@@ -208,6 +224,37 @@ export class WavelineRenderer {
         targetValue += suspensionHeight * suspensionShape;
       }
 
+      // ══════════════════════════════════════════════════════
+      // GESTOS DE INSTRUMENTO — Capa adicional de interpretación
+      // ══════════════════════════════════════════════════════
+      // Jerarquía: voz ya aplicada arriba (mayor amplitud)
+      // Instrumento añade personalidad sin reemplazar la voz.
+      const instrumentData = processed?.instrumentData;
+      if (instrumentData?.isActive && instrumentData.gestureIntensity > 0) {
+        const gPhase = instrumentData.gesturePhase;
+        const gInt = instrumentData.gestureIntensity;
+        targetValue += this.applyInstrumentGesture(
+          instrumentData.gestureType, t, gPhase, gInt
+        );
+      }
+
+      // ══════════════════════════════════════════════════════
+      // MOTIVOS VISUALES — Memoria de frases musicales
+      // ══════════════════════════════════════════════════════
+      // Capa más sutil: firma visual de la frase reconocida
+      const motifData = processed?.motifData;
+      if (motifData?.isMotifActive && motifData.motifAmplitude > 0.0005) {
+        // Onda característica del motivo con variación emocional
+        const motifWave = Math.sin(
+          motifData.motifPhase + t * Math.PI * (4 + motifData.motifFrequency * 20)
+        );
+        // La variación modifica ligeramente la forma del gesto
+        const variationWave = Math.sin(
+          motifData.motifPhase * 1.618 + t * Math.PI * 7
+        ) * motifData.variation * 0.3;
+        targetValue += (motifWave + variationWave) * motifData.motifAmplitude;
+      }
+
       // ── Suavizado de display con elasticidad de la canción ──
       const displaySmoothing = (0.10 + energy * 0.14) * (0.7 + elasticity * 0.6);
       this.displayPoints[i] += (targetValue - this.displayPoints[i]) * displaySmoothing;
@@ -215,17 +262,18 @@ export class WavelineRenderer {
   }
 
   /**
-   * Dibuja la capa de glow — ahora respira orgánicamente con la tensión.
+   * Dibuja la capa de glow — respira orgánicamente con la tensión.
+   * Incluye modulación sutil por instrumento protagonista (solo brillo).
    */
   private drawGlowLayer(color: DynamicColor, intensity: number, breathPhase: number, tension: number): void {
     this.ctx.save();
 
-    // Glow que respira — expande y contrae suavemente
     const breathMod = 1 + Math.sin(breathPhase * 0.7) * 0.15;
-    const tensionGlow = tension * 0.15; // Alta tensión → más glow
+    const tensionGlow = tension * 0.15;
 
-    const glowBlur = (18 + intensity * 40 + tensionGlow * 20) * breathMod;
-    const glowAlpha = 0.15 + intensity * 0.45 + tensionGlow * 0.1;
+    // El boost de instrumento añade hasta +15% de glow para instrumentos brillantes
+    const glowBlur = (18 + intensity * 40 + tensionGlow * 20) * breathMod * (1 + this.instrumentGlowBoost);
+    const glowAlpha = Math.min(0.15 + intensity * 0.45 + tensionGlow * 0.1 + this.instrumentGlowBoost * 0.1, 0.75);
     const glowWidth = 2 + intensity * 5;
 
     this.ctx.shadowBlur = glowBlur;
@@ -447,5 +495,115 @@ export class WavelineRenderer {
    */
   clear(): void {
     this.ctx.clearRect(0, 0, this.width, this.height);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // GESTOS DE INSTRUMENTO — Cálculo de modulación
+  // ══════════════════════════════════════════════════════
+
+  /**
+   * Calcula el desplazamiento visual para el gesto del instrumento en el punto t.
+   *
+   * Cada gesto es una pequeña modulación de la línea con personalidad propia.
+   * La amplitud máxima es ~0.012 (menor que la contribución de la voz ~0.012).
+   * Nunca domina — siempre añade matiz.
+   *
+   * @param gestureType - Tipo de gesto del instrumento activo
+   * @param t - Posición normalizada en la línea [0, 1]
+   * @param phase - Fase acumulada del gesto (tiempo)
+   * @param intensity - Intensidad del gesto [0, 1]
+   */
+  private applyInstrumentGesture(
+    gestureType: GestureType,
+    t: number,
+    phase: number,
+    intensity: number,
+  ): number {
+    const baseAmp = intensity * 0.010; // Amplitud máxima de base
+
+    switch (gestureType) {
+      case 'liquid_waves': {
+        // Piano / guitarra acústica: ondas fluidas elegantes
+        // Múltiples senos suaves con frecuencias irracionales
+        return (
+          Math.sin(phase + t * Math.PI * 5.0) * baseAmp * 0.9 +
+          Math.sin(phase * 0.618 + t * Math.PI * 3.14) * baseAmp * 0.4
+        );
+      }
+
+      case 'long_expansion': {
+        // Violín / cuerdas: expansión continua, curvas largas
+        // Onda muy lenta, sensación de suspensión, mayor amplitud en centro
+        const envelope = Math.sin(t * Math.PI); // Máximo en el centro
+        return (
+          Math.sin(phase * 0.5 + t * Math.PI * 2.0) * baseAmp * 1.1 * envelope
+        );
+      }
+
+      case 'luminous_pulse': {
+        // Trompeta / metales: impulsos brillantes con apertura
+        // Onda más aguda, con pequeños armónicos
+        return (
+          Math.sin(phase + t * Math.PI * 8.0) * baseAmp * 0.7 +
+          Math.sin(phase * 1.5 + t * Math.PI * 4.0) * baseAmp * 0.5 +
+          Math.sin(phase * 2.0) * baseAmp * 0.3 // Impulso global
+        );
+      }
+
+      case 'tension_edge': {
+        // Guitarra eléctrica: mayor tensión, bordes más definidos
+        // Onda con componente de segunda armónica prominente
+        return (
+          Math.sin(phase + t * Math.PI * 6.0) * baseAmp * 0.8 +
+          Math.sin(phase * 2 + t * Math.PI * 12.0) * baseAmp * 0.35
+        );
+      }
+
+      case 'micro_float': {
+        // Flauta: flotación aérea, movimiento muy sutil
+        // Frecuencia baja, casi imperceptible — como aire
+        return (
+          Math.sin(phase * 0.4 + t * Math.PI * 2.8) * baseAmp * 0.6 +
+          Math.sin(phase * 0.7 + t * Math.PI * 1.4) * baseAmp * 0.25
+        );
+      }
+
+      case 'warm_breath': {
+        // Saxofón: respiración cálida, curvas lentas
+        // Movimiento suave con leve asimetría
+        return (
+          Math.sin(phase * 0.6 + t * Math.PI * 3.5) * baseAmp * 0.9 +
+          Math.cos(phase * 0.3 + t * Math.PI * 1.8) * baseAmp * 0.3
+        );
+      }
+
+      case 'latin_impulse': {
+        // Percusión latina: pequeños impulsos rítmicos adicionales
+        // Componente de alta frecuencia con modulación de amplitud
+        const rhythmMod = Math.abs(Math.sin(phase * 2.0)); // Modulación rítmica
+        return (
+          Math.sin(phase + t * Math.PI * 10.0) * baseAmp * 0.6 * rhythmMod
+        );
+      }
+
+      case 'deep_swell': {
+        // Bass profundo: ondulación muy baja y lenta
+        return (
+          Math.sin(phase * 0.3 + t * Math.PI * 1.5) * baseAmp * 1.0
+        );
+      }
+
+      case 'soft_bloom': {
+        // Pad ambiental: expansión difusa muy suave
+        // Múltiples frecuencias bajas, sin armónicos agudos
+        return (
+          Math.sin(phase * 0.25 + t * Math.PI * 2.0) * baseAmp * 0.7 +
+          Math.sin(phase * 0.4 + t * Math.PI * 1.2) * baseAmp * 0.4
+        );
+      }
+
+      default:
+        return 0;
+    }
   }
 }

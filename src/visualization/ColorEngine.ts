@@ -57,9 +57,33 @@ export class ColorEngine {
   private blendFactor = 0; // 0 = previous, 1 = current
   private readonly blendSpeed = 0.04;
 
+  // ══════════════════════════════════════════════════════
+  // CHROMATIC DRIFT — Deriva cromática continua
+  // ══════════════════════════════════════════════════════
+  // El color nunca se congela. Incluso dentro del mismo estado emocional,
+  // oscila suavemente usando múltiples osciladores de baja frecuencia.
+
+  /** Fase del oscilador primario de drift (período ~12s) */
+  private driftPhase1 = 0;
+  /** Fase del oscilador secundario de drift (período ~19s, irracional) */
+  private driftPhase2 = 0;
+  /** Fase del oscilador terciario de drift (período ~7s) */
+  private driftPhase3 = 0;
+
+  /** Hue acumulado del drift (separado del currentHue para no interferir) */
+  private driftHue = 0;
+  /** Temperatura dinámica por actividad vocal/melódica */
+  private dynamicTemp = 0;
+  /** Último mid para detectar cambios de textura */
+  private prevMid = 0;
+  /** Último treble para detectar transients agudos */
+  private prevTreble = 0;
+  /** Micro-impulso de hue por transient (decae rápido) */
+  private transientHuePush = 0;
+
   /**
-   * Actualiza el color con consciencia emocional.
-   * Ahora usa el estado emocional con histéresis, no frames individuales.
+   * Actualiza el color con consciencia emocional y deriva cromática continua.
+   * El color ahora nunca se congela — evoluciona incluso dentro del mismo estado.
    */
   update(
     energy: number,
@@ -72,8 +96,6 @@ export class ColorEngine {
     breathPhase?: number,
   ): DynamicColor {
     // ── Determinar estado emocional ──
-    // Si tenemos EmotionalState, usar su estado con histéresis
-    // Si no, usar el cálculo directo (backwards-compatible)
     const level = emotionalState?.currentState
       ?? this.getEnergyLevel(energy, bass, mid, treble, isPeak);
 
@@ -87,13 +109,9 @@ export class ColorEngine {
     const target = PALETTES[level];
 
     // ── Velocidades de lerp moduladas por emoción ──
-    // Momentum alto → transiciones más ágiles
-    // Calma → transiciones más lentas, contemplativos
     const momentumMod = emotionalState
       ? 1 + Math.abs(emotionalState.momentum) * 0.5
       : 1;
-
-    // Peaks aceleran la transición
     const mult = isPeak ? this.peakLerpMultiplier : momentumMod;
 
     const hueSpeed = this.baseLerpHue * mult;
@@ -101,27 +119,86 @@ export class ColorEngine {
     const lightSpeed = this.baseLerpLight * mult;
     const glowSpeed = this.baseLerpGlow * mult;
 
-    // ── Temperatura cromática por canción ──
-    // Canciones cálidas sesgan hacia hues más bajos (ámbar/oro)
-    // Canciones frías sesgan hacia hues más altos (azul/violeta)
+    // ── Temperatura cromática base por canción ──
     let targetHue = target.hue;
     if (songProfile) {
-      const tempShift = songProfile.colorTemperature * 12; // Max ±12° de shift
+      const tempShift = songProfile.colorTemperature * 12;
       targetHue = (targetHue + tempShift + 360) % 360;
     }
 
+    // ══════════════════════════════════════════════════════
+    // CHROMATIC DRIFT — Deriva cromática continua
+    // ══════════════════════════════════════════════════════
+
+    // Avanzar los tres osciladores de drift con períodos distintos
+    // Período 1: ~12s @ 60fps → velocidad = 2π / (12*60) ≈ 0.00873
+    // Período 2: ~19s (irracional, usa φ=1.618) → 0.00873 / 1.618 ≈ 0.00539
+    // Período 3: ~7s → 2π / (7*60) ≈ 0.01496
+    this.driftPhase1 += 0.00873;
+    this.driftPhase2 += 0.00539;
+    this.driftPhase3 += 0.01496;
+
+    // Drift compuesto: suma ponderada de los tres osciladores
+    // Rango: ±7° de hue (nunca salta, nunca se aleja del target)
+    const driftRaw =
+      Math.sin(this.driftPhase1) * 4.0 +
+      Math.sin(this.driftPhase2) * 2.0 +
+      Math.sin(this.driftPhase3) * 1.0;
+
+    // El drift se escala con la energía actual para ser más vivo en momentos activos
+    const driftScale = 0.6 + energy * 0.6;
+    const driftOffset = driftRaw * driftScale;
+
+    // Suavizar el drift para evitar cambios bruscos
+    this.driftHue += (driftOffset - this.driftHue) * 0.04;
+
+    // ── Micro-transient: detección de cambios en mid y treble ──
+    // Cuando hay un cambio de textura (nueva frase vocal, nuevo instrumento),
+    // el hue recibe un micro-impulso que luego decae suavemente.
+    const midDelta = mid - this.prevMid;
+    const trebleDelta = treble - this.prevTreble;
+
+    // Transient positivo en mid (nueva frase vocal/melódica)
+    if (midDelta > 0.015) {
+      // Empujar el hue hacia un tono ligeramente más cálido
+      this.transientHuePush += midDelta * 8; // Máx ~3-4° impulso
+    }
+    // Transient en treble (aparición de brillo/instrumento agudo)
+    if (trebleDelta > 0.02) {
+      // Empujar hacia un tono ligeramente más frío/brillante
+      this.transientHuePush -= trebleDelta * 5;
+    }
+
+    // Decay del impulso transient (decae en ~20 frames)
+    this.transientHuePush *= 0.92;
+    // Clampar para no salirse demasiado
+    this.transientHuePush = Math.max(-6, Math.min(6, this.transientHuePush));
+
+    this.prevMid = mid;
+    this.prevTreble = treble;
+
+    // ── Temperatura dinámica por actividad vocal ──
+    // La actividad mid sostenida calienta levemente el color
+    const vocalWarmth = mid * 3.5;
+    const targetDynamicTemp = (mid > 0.18)
+      ? vocalWarmth
+      : -treble * 1.5; // Treble sin mid = enfriamiento suave
+    this.dynamicTemp += (targetDynamicTemp - this.dynamicTemp) * 0.015;
+    const dynamicTempShift = this.dynamicTemp * 3; // Máx ±~5°
+
+    // ── Hue final: target + drift + transient + temp dinámica ──
+    const enrichedTargetHue = (targetHue + this.driftHue + this.transientHuePush + dynamicTempShift + 360) % 360;
+
     // ── Interpolación ──
-    this.currentHue = this.lerpHue(this.currentHue, targetHue, hueSpeed);
+    this.currentHue = this.lerpHue(this.currentHue, enrichedTargetHue, hueSpeed);
     this.currentSaturation = this.lerp(this.currentSaturation, target.saturation, satSpeed);
     this.currentLightness = this.lerp(this.currentLightness, target.lightness, lightSpeed);
     this.currentGlow = this.lerp(this.currentGlow, target.glowIntensity, glowSpeed);
 
     // ── Modulación por tensión emocional ──
-    // Alta tensión → colores más vivos, glow más intenso
     let tensionBoost = 0;
     if (emotionalState) {
-      tensionBoost = emotionalState.tension * 6; // Max +6% saturation por tensión
-      // Tensión acumulada eleva ligeramente el lightness
+      tensionBoost = emotionalState.tension * 6;
       const tensionLight = emotionalState.tension * 3;
       this.currentLightness = this.lerp(
         this.currentLightness,
@@ -139,14 +216,11 @@ export class ColorEngine {
     const modulatedSaturation = Math.min(this.currentSaturation + energyBoost, 90);
 
     // ── Modulación de blancos cálidos por aire (treble alto) ──
-    // El treble alto (aire) actúa como un acento, tirando el color hacia un blanco cálido
-    // (desaturado y muy luminoso con un tono ámbar sumamente etéreo)
-    const airFactor = Math.min(0.65, treble * 1.3); // Máximo 65% de mezcla para conservar emoción base
-    const targetAirHue = 35;   // Tono ámbar/dorado muy suave
-    const targetAirSat = 12;   // Muy desaturado (blanco)
-    const targetAirLight = 86; // Alta luminosidad
+    const airFactor = Math.min(0.65, treble * 1.3);
+    const targetAirHue = 35;
+    const targetAirSat = 12;
+    const targetAirLight = 86;
 
-    // Mezclar HSL intermedio con el blanco cálido de aire
     const blendedHue = this.lerpHue(this.currentHue, targetAirHue, airFactor);
     const blendedSat = this.lerp(modulatedSaturation, targetAirSat, airFactor);
     const blendedLight = this.lerp(modulatedLightness, targetAirLight, airFactor);
@@ -154,18 +228,17 @@ export class ColorEngine {
     // ── Glow orgánico que respira ──
     let glowBreath = 1;
     if (breathPhase !== undefined) {
-      // El glow se modula suavemente con la respiración
       glowBreath = 1 + Math.sin(breathPhase * 0.7) * 0.12;
     }
 
-    // ── Emoción acumulada → más rica (saturación base más alta con el tiempo) ──
+    // ── Emoción acumulada → más rica ──
     const accumulatedBoost = emotionalState
       ? emotionalState.accumulatedEmotion * 5
       : 0;
 
     const h = Math.round(blendedHue);
     const s = Math.round(Math.min(blendedSat + accumulatedBoost, 92));
-    const l = Math.round(Math.min(blendedLight, 88)); // Techo más alto para blancos de aire
+    const l = Math.round(Math.min(blendedLight, 88));
 
     const glowValue = this.currentGlow * glowBreath;
 

@@ -2,6 +2,8 @@ import type { AudioAnalysisData, ProcessedAudioData, SongProfile } from '../type
 import { EmotionalMemory } from './EmotionalMemory';
 import { SongProfiler } from './SongProfiler';
 import { IntentionEngine } from './IntentionEngine';
+import { InstrumentDetector } from './InstrumentDetector';
+import { MotifEngine } from './MotifEngine';
 
 /**
  * DynamicsProcessor — Sistema DSP de compresión, suavizado perceptual,
@@ -81,18 +83,36 @@ export class DynamicsProcessor {
   private songProfiler: SongProfiler;
   private intentionEngine: IntentionEngine;
 
+  // ══════════════════════════════════════════════════════
+  // MÓDULOS DE INTERPRETACIÓN MUSICAL (NUEVOS)
+  // ══════════════════════════════════════════════════════
+  private instrumentDetector: InstrumentDetector | null = null;
+  private motifEngine: MotifEngine;
+
   constructor() {
     this.smoothWaveform = new Float32Array(this.waveformPoints);
     this.emotionalMemory = new EmotionalMemory();
     this.songProfiler = new SongProfiler();
     this.intentionEngine = new IntentionEngine();
     this.intentionEngine.setMemory(this.emotionalMemory);
+    this.motifEngine = new MotifEngine();
   }
 
   /**
    * Procesa un frame de datos crudos y devuelve datos visualmente seguros
    * enriquecidos con consciencia emocional.
    */
+  /**
+   * Configura el InstrumentDetector con el sampleRate y fftSize del contexto de audio.
+   * Llamar después de inicializar el AudioAnalyzer.
+   */
+  configureSampleRate(sampleRate: number, fftSize: number): void {
+    if (!this.instrumentDetector ||
+        this.instrumentDetector.getSampleRate() !== sampleRate) {
+      this.instrumentDetector = new InstrumentDetector(sampleRate, fftSize);
+    }
+  }
+
   process(raw: AudioAnalysisData): ProcessedAudioData {
     // ── 1. BAND MIXING BALANCEADO ──
     const rawMixed =
@@ -182,6 +202,27 @@ export class DynamicsProcessor {
     // ── 14. INTENTION ENGINE ──
     const intention = this.intentionEngine.update(this.smoothEnergy2, this.smoothMid2);
 
+    // ── 15. INSTRUMENT DETECTOR ──
+    const instrumentData = this.instrumentDetector
+      ? this.instrumentDetector.update(
+          raw.frequencyData,
+          this.smoothEnergy2,
+          this.smoothMid2,
+          intention.vocalPhrase,
+        )
+      : this.getDefaultInstrumentData();
+
+    // ── 16. MOTIF ENGINE ──
+    const motifData = this.motifEngine.update(
+      this.smoothEnergy2,
+      this.smoothBass2,
+      this.smoothMid2,
+      this.smoothTreble2,
+      isPeak,
+      emotionalState.tension,
+      emotionalState.valence,
+    );
+
     return {
       energy: this.clamp(this.smoothEnergy2),
       bass: this.clamp(this.smoothBass2),
@@ -194,6 +235,8 @@ export class DynamicsProcessor {
       emotionalState,
       songProfile,
       intention,
+      instrumentData,
+      motifData,
     };
   }
 
@@ -221,6 +264,10 @@ export class DynamicsProcessor {
     const emotionalState = this.emotionalMemory.silence();
     const songProfile = this.songProfiler.silence();
     const intention = this.intentionEngine.silence();
+    const instrumentData = this.instrumentDetector
+      ? this.instrumentDetector.silence()
+      : this.getDefaultInstrumentData();
+    const motifData = this.motifEngine.silence();
 
     return {
       energy: this.clamp(this.smoothEnergy2),
@@ -234,6 +281,8 @@ export class DynamicsProcessor {
       emotionalState,
       songProfile,
       intention,
+      instrumentData,
+      motifData,
     };
   }
 
@@ -244,6 +293,8 @@ export class DynamicsProcessor {
     this.emotionalMemory.reset();
     this.songProfiler.reset();
     this.intentionEngine.reset();
+    this.instrumentDetector?.reset();
+    this.motifEngine.reset();
 
     // Reset del estado DSP base también
     this.envEnergy = 0;
@@ -423,5 +474,19 @@ export class DynamicsProcessor {
    */
   private clamp(x: number): number {
     return Math.max(0, Math.min(1, x));
+  }
+
+  /**
+   * InstrumentData por defecto cuando el detector no está inicializado.
+   */
+  private getDefaultInstrumentData() {
+    return {
+      dominantInstrument: 'none' as const,
+      confidence: 0,
+      isActive: false,
+      gestureType: 'none' as const,
+      gestureIntensity: 0,
+      gesturePhase: 0,
+    };
   }
 }

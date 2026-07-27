@@ -108,6 +108,91 @@ export interface ProcessedAudioData {
   songProfile: SongProfile;
   /** Intención y anticipación */
   intention: IntentionData;
+  /** Instrumento protagonista detectado en el frame */
+  instrumentData: InstrumentData;
+  /** Motivo visual activo (frase musical reconocida) */
+  motifData: MotifData;
+}
+
+// ══════════════════════════════════════════════════════
+// INSTRUMENTOS — Detección espectral heurística
+// ══════════════════════════════════════════════════════
+
+/**
+ * Tipos de instrumento detectables por análisis espectral.
+ * 'none' = sin instrumento claramente protagonista.
+ */
+export type InstrumentType =
+  | 'none'
+  | 'piano'
+  | 'guitar_acoustic'
+  | 'guitar_electric'
+  | 'violin_strings'
+  | 'trumpet_brass'
+  | 'saxophone'
+  | 'flute'
+  | 'pad_ambient'
+  | 'percussion_latin'
+  | 'bass_deep';
+
+/**
+ * Tipo de gesto visual asociado a cada instrumento.
+ * Determina la forma de la modulación sobre la línea.
+ */
+export type GestureType =
+  | 'none'
+  | 'liquid_waves'       // Piano: ondas elegantes, curvas fluidas
+  | 'long_expansion'     // Violín/Cuerdas: expansión continua
+  | 'luminous_pulse'     // Trompeta/Metales: impulso brillante
+  | 'tension_edge'       // Guitarra eléctrica: mayor tensión en bordes
+  | 'micro_float'        // Flauta: flotación aérea muy sutil
+  | 'warm_breath'        // Saxofón: respiración cálida
+  | 'latin_impulse'      // Percusión latina: pequeños impulsos rítmicos
+  | 'deep_swell'         // Bass profundo: ondulación baja
+  | 'soft_bloom';        // Pad ambiental: expansión suave difusa
+
+/**
+ * Datos del instrumento protagonista detectado en el frame actual.
+ */
+export interface InstrumentData {
+  /** Instrumento actualmente dominante */
+  dominantInstrument: InstrumentType;
+  /** Nivel de confianza en la detección (0-1). Alto = muy claro */
+  confidence: number;
+  /** Si hay un instrumento claramente protagonista (confidence > umbral) */
+  isActive: boolean;
+  /** Gesto visual asociado al instrumento actual */
+  gestureType: GestureType;
+  /** Intensidad del gesto (0-1). Modulada por confianza y energía */
+  gestureIntensity: number;
+  /** Fase interna del gesto (para continuidad entre frames) */
+  gesturePhase: number;
+}
+
+// ══════════════════════════════════════════════════════
+// MOTIVOS — Memoria de frases musicales
+// ══════════════════════════════════════════════════════
+
+/**
+ * Datos del motor de motivos visuales.
+ * Captura si la música actual se parece a una frase reciente
+ * y qué gesto visual debería reutilizarse.
+ */
+export interface MotifData {
+  /** Si hay un motivo activo reconocido del banco de memoria */
+  isMotifActive: boolean;
+  /** Similitud con el motivo más cercano (0-1). 1 = idéntico */
+  similarity: number;
+  /** Índice del motivo en el banco (para trazabilidad) */
+  motifIndex: number;
+  /** Parámetro de onda del motivo: frecuencia angular de la firma visual */
+  motifFrequency: number;
+  /** Fase acumulada del motivo (continuidad) */
+  motifPhase: number;
+  /** Amplitud del gesto del motivo (muy pequeña, máx ~0.008) */
+  motifAmplitude: number;
+  /** Variación aplicada sobre el gesto base (0-1) */
+  variation: number;
 }
 
 /** Estado del reproductor de audio */
